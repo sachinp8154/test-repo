@@ -1,0 +1,665 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="IPAWeb" default="all" basedir=".">
+	
+	<!-- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+		Default target.
+	- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -->
+	<target name="all" depends="clean,properties,generate,jars,woframeworks,woapps,docroot"/>
+
+	<!-- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+		CruiseControl build.
+	- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -->
+	<target name="ci-build" depends="all"/>
+	
+	<!-- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+		Bootstrap your Eclipse workspace.
+	- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -->
+	<target name="eclipse" depends="clean,prebuilt">
+		<echo message="Creating symlinks for Eclipse roots..."/>
+		<shellscript shell="/bin/sh" dir="${basedir}">
+			if [ ! -d "${project.support.dir}" ]; then
+				mkdir ${project.support.dir};
+			fi
+			
+			if [ -h "${project.support.dir}/WebObjects" ]; then 
+				rm ${project.support.dir}/WebObjects;
+			fi
+			
+			if [ -h "${project.support.dir}/Roots" ]; then
+				rm ${project.support.dir}/Roots;
+			fi
+			
+			ln -s ${basedir}/${roots.dir} ${project.support.dir}/WebObjects;
+			ln -s ${basedir}/${roots.dir} ${project.support.dir}/Roots;
+		</shellscript>
+		
+		<echo message="Creating symlinks for Apache docroot..."/>
+		<shellscript shell="/bin/sh" dir="${basedir}">	
+			cd ${project.docroot};
+			WEBSERVER_LIST=(`ls`);
+			for wsroot in ${WEBSERVER_LIST[@]}
+			do
+				if [ -h ${project.apache.docroot}/$wsroot ]
+				then
+					rm ${project.apache.docroot}/$wsroot;
+				fi
+				
+				ln -s ${project.docroot}/$wsroot ${project.apache.docroot}/$wsroot;
+			done
+		</shellscript>
+
+		<echo message="Creating symlinks for configuration files..."/>
+		<shellscript shell="/bin/sh" dir="${basedir}">	
+			if [ -h ${project.support.dir}/WebObjects.properties ]
+			then
+				rm ${project.support.dir}/WebObjects.properties;
+			fi
+			
+			ln -s ${webobjects.properties.file.dev} ${project.support.dir}/WebObjects.properties;
+		</shellscript>
+	</target>
+	
+	<!-- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+		Cleans Roots of our build products.
+	- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -->
+	<target name="clean" depends="properties">
+		<echo message="Deleting build products..."/>
+		<delete dir="${classes.dir}"/>
+		<delete dir="${webserver.roots.dir}"/>
+		<delete dir="${package.tmp.dir}"/>
+		<delete dir="${roots.dir}/${ant.project.name}-${build.version}.tgz"/>
+
+		<echo message="Deleting WebObjects frameworks..."/>
+		<for list="${prebuilt.webobjects.frameworks}" param="iii">
+			<sequential>
+				<delete dir="${roots.dir}/${wo.system.root.suffix}/@{iii}.framework"/>
+			</sequential>
+		</for>
+
+		<echo message="Deleting DS frameworks..."/>
+		<for list="${prebuilt.ds.frameworks}" param="iii">
+			<sequential>
+				<delete dir="${roots.dir}/${wo.user.root.suffix}/@{iii}.framework"/>
+			</sequential>
+		</for>
+
+		<echo message="Deleting Wonder frameworks..."/>
+		<for list="${prebuilt.wonder.frameworks}" param="iii">
+			<sequential>
+				<delete dir="${roots.dir}/${wo.user.root.suffix}/@{iii}.framework"/>
+			</sequential>
+		</for>
+		
+		<echo message="Deleting Jingle frameworks..."/>
+		<for list="${prebuilt.jingle.frameworks}" param="iii">
+			<sequential>
+				<delete dir="${roots.dir}/${wo.user.root.suffix}/@{iii}.framework"/>
+			</sequential>
+		</for>
+
+		<echo message="Deleting other prebuilt frameworks..."/>
+		<for list="${prebuilt.other.frameworks}" param="iii">
+			<sequential>
+				<delete dir="${roots.dir}/${wo.user.root.suffix}/@{iii}.framework"/>
+			</sequential>
+		</for>
+		
+		<echo message="Deleting frameworks..."/>
+		<for list="${project.frameworks}" param="iii">
+			<sequential>
+				<delete dir="${roots.dir}/${wo.user.root.suffix}/@{iii}.framework"/>
+			</sequential>
+		</for>
+		
+		<echo message="Deleting WOAs..."/>
+		<for list="${project.woapps}" param="iii">
+			<sequential>
+				<delete dir="${roots.dir}/@{iii}.woa"/>
+			</sequential>
+		</for>
+	</target>
+	
+	<!-- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+		Set up properties required by other targets.
+	- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -->
+	<target name="properties">
+		<echo message="Reading properties..."/>
+		<property file="${user.home}/build.preauth.properties"/>
+		<property file="${basedir}/build54/default.properties"/>
+		
+		<!-- WO system root will be automatically determined to be ${webobjects.frameworks.dir}/System. -->
+		<property name="wo.system.frameworks" location="${webobjects.frameworks.dir}/${wo.system.root.suffix}"/>
+		<property name="wo.system.root" location="${webobjects.frameworks.dir}/System"/>
+		<echo message="Derived wo.system.frameworks: ${wo.system.frameworks}"/>
+		<echo message="Derived wo.system.root: ${wo.system.root}"/>
+		
+		<property name="wo.user.frameworks" location="${roots.dir}/${wo.user.root.suffix}"/>
+		<property name="wo.user.root" location="${roots.dir}/${wo.user.root.suffix}"/>
+		<echo message="Derived wo.user.frameworks: ${wo.user.frameworks}"/>
+		<echo message="Derived wo.user.root: ${wo.user.root}"/>
+		
+		<echo message="Derived wo.bootstrapjar: ${wo.bootstrapjar}"/>
+		
+		<!-- These are required for us to build without wolips.properties, but you'll be unhappy if you
+				try to use them in the WOApplication task. Use user roots instead of the local roots. -->
+		<property name="wo.local.frameworks" location="${roots.dir}/${wo.user.root.suffix}"/>
+		<property name="wo.local.root" location="${roots.dir}/${wo.user.root.suffix}"/>
+		<echo message="Derived wo.local.frameworks: ${wo.local.frameworks}"/>
+		<echo message="Derived wo.local.root: ${wo.local.root}"/>
+		
+		<echo message="Initializing custom taskdefs..."/>
+		<taskdef resource="net/sf/antcontrib/antcontrib.properties" classpath="${ant-contrib.jar}"/>
+		<taskdef name="woframework" classname="org.objectstyle.woproject.ant.WOFramework" classpath="${woproject.jar}"/>
+		<taskdef name="wocompile" classname="org.objectstyle.woproject.ant.WOCompile" classpath="${woproject.jar}"/>
+		<taskdef name="woapplication" classname="org.objectstyle.woproject.ant.WOApplication" classpath="${woproject.jar}"/>
+		<taskdef name="yui-compressor" classname="net.noha.tools.ant.yuicompressor.tasks.YuiCompressorTask" classpath="${yuicompressor.jar}:${yuicompressor-ant-task.jar}"/>
+		
+		<echo message="Getting GIT commit..."/>
+	    <property name="build.version" value="1708-SNAPSHOT"/> <!-- Set to blank if it's unset. -->
+		<property name="version.file.path" value="${roots.dir}/${version.file}"/>
+		<shellscript shell="/bin/sh" dir="${basedir}">
+		if [ ! -d "${roots.dir}" ]; then
+			mkdir ${roots.dir};
+		fi
+		echo commitId=`git rev-parse HEAD` > ${version.file.path};
+
+		echo build=${build.version} >> ${version.file.path};
+
+		</shellscript>
+		<exec executable="cat" outputproperty="build.version" failonerror="true">
+			<arg value="${roots.dir}/${version.file}"/>
+		</exec>			
+		
+		<echo message="We are building revision ${build.version}."/>
+	</target>
+
+	<!-- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+		Extract the required prebuilt WOFrameworks into Roots.
+	- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -->
+	<target name="prebuilt" depends="properties">
+	
+		<echo message="WebObjects prebuilts: ${prebuilt.webobjects.frameworks}"/>
+		<for list="${prebuilt.webobjects.frameworks}" param="iii">
+			<sequential>
+			<if><not><uptodate srcfile="${prebuilt.webobjects.dir}/@{iii}.tgz" targetfile="${roots.dir}/${wo.system.root.suffix}/@{iii}.framework"/></not>
+				<then>
+					<mkdir dir="${roots.dir}/${wo.system.root.suffix}"/>
+					<echo message="Installing @{iii}.framework"/>
+					<exec executable="${gnutar.bin}">
+						<arg line="--directory ${roots.dir}/${wo.system.root.suffix} -zxf ${prebuilt.webobjects.dir}/@{iii}.tgz"/>
+					</exec>
+					<touch>
+    					<fileset dir="${roots.dir}/${wo.system.root.suffix}/@{iii}.framework"/>
+					</touch>
+				</then>
+				<else>
+					<echo message="@{iii}.framework is up to date"/>
+				</else>
+			</if>
+			</sequential>
+		</for>
+		
+		<echo message="DS prebuilts: ${prebuilt.ds.frameworks}"/>
+		<for list="${prebuilt.ds.frameworks}" param="iii">
+			<sequential>
+			<if><not><uptodate srcfile="${prebuilt.ds.dir}/@{iii}.tgz" targetfile="${roots.dir}/${wo.user.root.suffix}/@{iii}.framework"/></not>
+				<then>
+					<mkdir dir="${roots.dir}/${wo.user.root.suffix}"/>
+					<echo message="Installing @{iii}.framework"/>
+					<exec executable="${gnutar.bin}">
+						<arg line="--directory ${roots.dir}/${wo.user.root.suffix} -zxf ${prebuilt.ds.dir}/@{iii}.tgz"/>
+					</exec>
+					<touch>
+    					<fileset dir="${roots.dir}/${wo.user.root.suffix}/@{iii}.framework"/>
+					</touch>
+				</then>
+				<else>
+					<echo message="@{iii}.framework is up to date"/>
+				</else>
+			</if>
+			</sequential>
+		</for>		
+
+		<echo message="Wonder prebuilts: ${prebuilt.wonder.frameworks}"/>
+		<for list="${prebuilt.wonder.frameworks}" param="iii">
+			<sequential>
+			<if><not><uptodate srcfile="${prebuilt.wonder.dir}/@{iii}.tgz" targetfile="${roots.dir}/${wo.user.root.suffix}/@{iii}.framework"/></not>
+				<then>
+					<mkdir dir="${roots.dir}/${wo.user.root.suffix}"/>
+					<echo message="Installing @{iii}.framework"/>
+					<exec executable="${gnutar.bin}">
+						<arg line="--directory ${roots.dir}/${wo.user.root.suffix} -zxf ${prebuilt.wonder.dir}/@{iii}.tgz"/>
+					</exec>
+					<touch>
+    					<fileset dir="${roots.dir}/${wo.user.root.suffix}/@{iii}.framework"/>
+					</touch>
+				</then>
+				<else>
+					<echo message="@{iii}.framework is up to date"/>
+				</else>
+			</if>
+			</sequential>
+		</for>		
+
+		<echo message="Jingle prebuilts: ${prebuilt.jingle.frameworks}"/>
+		<for list="${prebuilt.jingle.frameworks}" param="iii">
+			<sequential>
+			<if><not><uptodate srcfile="${prebuilt.jingle.dir}/@{iii}.tgz" targetfile="${roots.dir}/${wo.user.root.suffix}/@{iii}.framework"/></not>
+				<then>
+					<mkdir dir="${roots.dir}/${wo.user.root.suffix}"/>
+					<echo message="Installing @{iii}.framework"/>
+					<exec executable="${gnutar.bin}">
+						<arg line="--directory ${roots.dir}/${wo.user.root.suffix} -zxf ${prebuilt.jingle.dir}/@{iii}.tgz"/>
+					</exec>
+					<touch>
+    					<fileset dir="${roots.dir}/${wo.user.root.suffix}/@{iii}.framework"/>
+					</touch>
+				</then>
+				<else>
+					<echo message="@{iii}.framework is up to date"/>
+				</else>
+			</if>
+			</sequential>
+		</for>		
+
+		<echo message="Other prebuilts: ${prebuilt.other.frameworks}"/>
+		<for list="${prebuilt.other.frameworks}" param="iii">
+			<sequential>
+			<if><not><uptodate srcfile="${prebuilt.other.dir}/@{iii}.tgz" targetfile="${roots.dir}/${wo.user.root.suffix}/@{iii}.framework"/></not>
+				<then>
+					<mkdir dir="${roots.dir}/${wo.user.root.suffix}"/>
+					<echo message="Installing @{iii}.framework"/>
+					<exec executable="${gnutar.bin}">
+						<arg line="--directory ${roots.dir}/${wo.user.root.suffix} -zxf ${prebuilt.other.dir}/@{iii}.tgz"/>
+					</exec>
+					<touch>
+    					<fileset dir="${roots.dir}/${wo.user.root.suffix}/@{iii}.framework"/>
+					</touch>
+				</then>
+				<else>
+					<echo message="@{iii}.framework is up to date"/>
+				</else>
+			</if>
+			</sequential>
+		</for>		
+
+	</target>
+
+	<!-- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+		Begin generated code.
+	- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -->
+	<target name="docroot" depends="properties">
+		<echo message="Copying contents of ${project.docroot}..."/>
+		<copy todir="${webserver.roots.dir}">
+			<fileset dir="${project.docroot}">
+				<exclude name="**/.DS_Store"/>
+				<exclude name="**/.svn"/>
+			</fileset>
+		</copy>
+		<yui-compressor warn="false" munge="true" jsSuffix="-min.js" cssSuffix="-min.css" preserveAllSemiColons="false" fromDir="${webserver.roots.dir}" toDir="${webserver.roots.dir}">
+			<include name="ipa_itunes/**/*.js"/>
+			<include name="ipa_itunes/**/*.css"/>
+		</yui-compressor>
+	</target>
+
+	<!-- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+		Begin generated code.
+	- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -->
+	<target name="generate" depends="properties">
+		<echo message="We don't auto-generate anything right now."/>
+	</target>
+	
+	<!-- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+		Begin Jars.
+	- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -->
+	<target name="jars" depends="properties">
+		<echo message="We don't compile any jars right now."/>
+	</target>
+	
+	<!-- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+		Begin WebObjects frameworks.
+	- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -->
+	<target name="woframeworks" depends="properties,prebuilt">
+		<echo message="Building all WOFrameworks..."/>
+		<for list="${project.frameworks}" param="iii">
+			<sequential>
+				<antcall target="woframework.build">
+					<param name="compile_framework_name" value="@{iii}"/>
+				</antcall>
+			</sequential>
+		</for>
+	</target>
+	
+	<!-- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+		Begin WebObjects applications.
+	- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -->
+	<target name="woapps" depends="properties,prebuilt">
+		<echo message="Building all WOApps..."/>
+		<for list="${project.woapps}" param="iii">
+			<sequential>
+				<antcall target="woapp.build">
+					<param name="compile_app_name" value="@{iii}"/>
+				</antcall>
+			</sequential>
+		</for>
+	</target>
+
+	<!-- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+		Builds an individual framework based on its build.properties.
+	- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -->
+	<target name="woframework.build">
+		<echo message="Building ${compile_framework_name}.framework..."/>
+		
+		<if><not><isset property="compile_framework_name"/></not>
+			<then>
+				<fail message="compile_framework_name is not defined!"/>
+			</then>
+		</if>
+		
+		<echo message="Capturing ${compile_framework_name}'s build.properties"/>
+		<property file="${compile_framework_name}/build.properties"/>
+		
+		<echo message="Compiling sources"/>
+		<antcall target="wocompile">
+			<param name="compile_project_name" value="${compile_framework_name}"/>
+		</antcall>
+		
+		<echo message="Creating framework bundle"/>
+		<woframework 
+				name="${compile_framework_name}" 
+				destDir="${roots.dir}/${wo.user.root.suffix}"
+				customInfoPListContent="${customInfoPListContent}"
+				principalClass="${principalClass}"
+				eoAdaptorClassName="${eoAdaptorClassName}"
+				javaVersion="${javaVersion}"
+				cfbundleversion="${cfBundleVersion}"
+				cfbundleshortversion="${cfBundleShortVersion}"
+				cfbundleID="${cfBundleID}">
+			
+			<classes dir="${classes.dir}/${compile_framework_name}">
+				<include name="**/**"/>
+				<exclude name="**/.svn"/>
+			</classes>
+			<wsresources dir="${compile_framework_name}/WebServerResources">
+				<include name="**/**"/>
+				<exclude name="**/.svn"/>
+			</wsresources>
+			<resources dir="${compile_framework_name}/Resources">
+				<include name="**/**"/>
+				<exclude name="**/.svn"/>
+			</resources>
+			<resources dir="${compile_framework_name}/Components">
+				<include name="**/**"/>
+				<exclude name="**/.svn"/>
+			</resources>
+			<lib dir="${compile_framework_name}/Libraries">
+				<include name="**/**"/>
+				<exclude name="**/.svn"/>
+				<exclude name="*src.jar"/>
+				<exclude name="*sources.jar"/>
+			</lib>
+		</woframework>
+		
+		<echo message="Creating source jar..."/>
+		<jar destfile="${roots.dir}/${wo.user.root.suffix}/${compile_framework_name}.framework/Resources/Java/src.jar">
+			<fileset dir="${basedir}/${compile_framework_name}/Sources">
+				<include name="**/**"/>
+				<exclude name="**/.svn"/>
+			</fileset>
+		</jar>
+		
+		<echo message="Copying build.properties into the framework product..."/>
+		<copy file="${compile_framework_name}/build.properties" todir="${roots.dir}/${wo.user.root.suffix}/${compile_framework_name}.framework"/>
+	</target>
+	
+	<!-- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+		Builds an individual application based on its build.properties.
+	- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -->
+	<target name="woapp.build">
+		<echo message="Building ${compile_app_name}.woa..."/>
+		<if><not><isset property="compile_app_name"/></not>
+			<then>
+				<fail message="compile_app_name is not defined!"/>
+			</then>
+		</if>
+		
+		<echo message="Capturing ${compile_app_name}'s build.properties"/>
+		<property file="${compile_app_name}/build.properties"/>
+		
+		<echo message="Compiling sources"/>
+		<antcall target="wocompile">
+			<param name="compile_project_name" value="${compile_app_name}"/>
+		</antcall>
+		
+		<echo message="Creating WOA bundle"/>
+		<woapplication 	name="${compile_app_name}"
+						destDir="${roots.dir}"
+						customInfoPListContent="${customInfoPListContent}"
+						principalClass="${principalClass}"
+						jvm="${woapplication.jvm}">
+						
+			<classes dir="${classes.dir}/${compile_app_name}">
+				<include name="**/**"/>
+				<exclude name="**/.svn"/>
+			</classes>
+			<wsresources dir="${compile_app_name}/WebServerResources">
+				<include name="**/**"/>
+				<exclude name="**/.svn"/>
+			</wsresources>
+			<resources dir="${compile_app_name}/Resources">
+				<include name="**/**"/>
+				<exclude name="**/.svn"/>
+			</resources>
+			<resources dir="${compile_app_name}/Components">
+				<include name="**/**"/>
+				<exclude name="**/.svn"/>
+			</resources>
+			<lib dir="${compile_app_name}/Libraries">
+				<include name="**/**"/>
+				<exclude name="**/.svn"/>
+				<exclude name="*src.jar"/>
+				<exclude name="*sources.jar"/>
+			</lib>
+			
+			<frameworks root="User" bundles="${project.depends.frameworks}" embed="${project.frameworks.embed}" if="project.depends.frameworks"/>
+			<frameworks root="User" bundles="${other.depends.frameworks}" embed="true" if="other.depends.frameworks"/>
+			<frameworks root="User" bundles="${jingle.depends.frameworks}" embed="${jingle.frameworks.embed}" if="jingle.depends.frameworks"/>
+			<frameworks root="User" bundles="${wonder.depends.frameworks}" embed="${wonder.frameworks.embed}" if="wonder.depends.frameworks"/>
+			<frameworks root="User" bundles="${ds.depends.frameworks}" embed="${ds.frameworks.embed}" if="ds.depends.frameworks"/>
+			<frameworks root="System" bundles="${webobjects.depends.frameworks}" embed="${webobjects.frameworks.embed}"/>
+			
+		</woapplication>
+		
+		<echo message="Copying build.properties into the woa product"/>
+		<copy file="${compile_app_name}/build.properties" todir="${roots.dir}/${compile_app_name}.woa"/>
+	</target>
+	
+	<!-- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+		Compiles sources for an app or framework (used by woapp.build and woframework.build).
+		The build products get put into ${classes.dir}/${compile_project_name}.
+	- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -->
+	<target name="wocompile">
+		<if><not><isset property="compile_project_name"/></not>
+			<then>
+				<fail message="compile_project_name is not defined!"/>
+			</then>
+		</if>
+		
+		<!-- Create classes dir for the project if it does not exist. -->
+		<mkdir dir="${classes.dir}/${compile_project_name}"/>
+		
+		<!-- Compile all classes using a classpath generated from WO frameworks. -->
+		<wocompile srcdir="${compile_project_name}/Sources" destdir="${classes.dir}/${compile_project_name}" debug="${wocompile.debug}" source="${ant.build.javac.source}" target="${ant.build.javac.target}">
+			
+			<classpath>
+				<fileset dir="${compile_project_name}/Libraries">
+					<include name="**/*.jar"/>
+				</fileset>
+			</classpath>
+
+			<frameworks root="User" bundles="${project.depends.frameworks}" if="project.depends.frameworks"/>
+			<frameworks root="User" bundles="${other.depends.frameworks}" if="other.depends.frameworks"/>
+			<frameworks root="User" bundles="${jingle.depends.frameworks}" if="jingle.depends.frameworks"/>
+			<frameworks root="User" bundles="${wonder.depends.frameworks}" if="wonder.depends.frameworks"/>
+			<frameworks root="User" bundles="${ds.depends.frameworks}" if="ds.depends.frameworks"/>
+			<frameworks root="System" bundles="${webobjects.depends.frameworks}"/>
+			
+		</wocompile>
+		
+		<!-- Copy resource bundles into the classes dir so that they correctly end up 
+				in the built product. -->
+		<copy todir="${classes.dir}/${compile_project_name}">
+			<fileset dir="${compile_project_name}/Sources">
+				<include name="*.properties"/>
+			</fileset>
+		</copy>
+		
+	</target>
+	
+	<!-- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+		Packages the individual frameworks in Roots for use as prebuilt frameworks.
+	- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -->
+	<target name="package-frameworks" depends="woframeworks">
+		
+		<for list="${project.frameworks}" param="iii">
+			<sequential>				
+				<echo message="Bundling @{iii}.framework --> @{iii}.tgz"/>
+				<exec executable="${gnutar.bin}">
+					<arg line="--directory ${roots.dir}/${wo.user.root.suffix} -zcf ${roots.dir}/@{iii}.tgz @{iii}.framework"/>
+				</exec>
+			</sequential>
+		</for>
+		
+	</target>
+	
+	<!-- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+		Minifies resources in place for development testing.
+	- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -->
+	<target name="minify-in-place" depends="properties">
+		<yui-compressor warn="false" munge="true" jsSuffix="-min.js" cssSuffix="-min.css" preserveAllSemiColons="false" fromDir="${basedir}/IPAResources/docroot" toDir="${basedir}/IPAResources/docroot">
+			<include name="ipa_itunes/**/*.js"/>
+			<include name="ipa_itunes/**/*.css"/>
+		</yui-compressor>
+	</target>	
+	
+	<!-- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+		Packages the contents of the web server root for deployment.
+	- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -->
+	<target name="package-wsr" depends="properties,docroot">
+		
+		<mkdir dir="${package.tmp.dir}"/>
+		<mkdir dir="${package.tmp.dir}/WebServer"/>
+		
+		<copy todir="${package.tmp.dir}/WebServer">
+			<fileset dir="${webserver.roots.dir}"/>
+		</copy>
+				
+		<copy file="${roots.dir}/${version.file}" tofile="${package.tmp.dir}/${version.file}"/>
+		<copy file="${roots.dir}/${version.file}" tofile="${package.tmp.dir}/WebServer/ipa_preauth/buildinfo.txt"/>
+
+		
+		<tar destfile="${roots.dir}/IPAWeb-WebServer-${build.version}.tgz" compression="gzip" longfile="gnu">
+			<tarfileset dir="${package.tmp.dir}"/>
+		</tar>
+		
+		<delete dir="${package.tmp.dir}"/>
+		
+	</target>
+	
+	<!-- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+		Packages the contents of Roots for deployment.
+	- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -->
+	<target name="package" depends="all">
+		
+		<mkdir dir="${package.tmp.dir}"/>
+		<mkdir dir="${package.tmp.dir}/Applications"/>
+		<mkdir dir="${package.tmp.dir}/Configuration"/>
+		<mkdir dir="${package.tmp.dir}/Frameworks"/>
+		<mkdir dir="${package.tmp.dir}/WebServer"/>
+		<mkdir dir="${package.tmp.dir}/Jars"/>
+		
+		<copy todir="${package.tmp.dir}/WebServer">
+			<fileset dir="${webserver.roots.dir}"/>
+		</copy>
+		
+		<copy file="${roots.dir}/${version.file}" tofile="${package.tmp.dir}/WebServer/ipa_preauth/buildinfo.txt"/>
+		
+		<copy todir="${package.tmp.dir}/Configuration">
+			<fileset dir="${basedir}/IPAResources/configuration">
+				<include name="*.properties"/>
+			</fileset>
+		</copy>
+
+		<copy todir="${package.tmp.dir}/Configuration">
+			<fileset dir="${basedir}/build54/etc">
+				<include name="*.conf"/>
+			</fileset>
+		</copy>
+		
+		<for list="${prebuilt.webobjects.frameworks}" param="iii">
+			<sequential>
+				<copy todir="${package.tmp.dir}/Frameworks${wo.system.root.suffix}/@{iii}.framework">
+					<fileset dir="${roots.dir}/${wo.system.root.suffix}/@{iii}.framework"/>
+				</copy>
+			</sequential>
+		</for>
+
+		<for list="${prebuilt.ds.frameworks}" param="iii">
+			<sequential>
+				<copy todir="${package.tmp.dir}/Frameworks/${wo.user.root.suffix}/@{iii}.framework">
+					<fileset dir="${roots.dir}/${wo.user.root.suffix}/@{iii}.framework"/>
+				</copy>
+			</sequential>
+		</for>
+
+		<for list="${prebuilt.wonder.frameworks}" param="iii">
+			<sequential>
+				<copy todir="${package.tmp.dir}/Frameworks/${wo.user.root.suffix}/@{iii}.framework">
+					<fileset dir="${roots.dir}/${wo.user.root.suffix}/@{iii}.framework"/>
+				</copy>
+			</sequential>
+		</for>
+		
+		<for list="${prebuilt.jingle.frameworks}" param="iii">
+			<sequential>
+				<copy todir="${package.tmp.dir}/Frameworks/${wo.user.root.suffix}/@{iii}.framework">
+					<fileset dir="${roots.dir}/${wo.user.root.suffix}/@{iii}.framework"/>
+				</copy>
+			</sequential>
+		</for>
+		
+		<for list="${prebuilt.other.frameworks}" param="iii">
+			<sequential>
+				<copy todir="${package.tmp.dir}/Frameworks/${wo.user.root.suffix}/@{iii}.framework">
+					<fileset dir="${roots.dir}/${wo.user.root.suffix}/@{iii}.framework"/>
+				</copy>
+			</sequential>
+		</for>
+		
+		<for list="${project.frameworks}" param="iii">
+			<sequential>
+				<copy todir="${package.tmp.dir}/Frameworks/${wo.user.root.suffix}/@{iii}.framework">
+					<fileset dir="${roots.dir}/${wo.user.root.suffix}/@{iii}.framework"/>
+				</copy>
+			</sequential>
+		</for>
+		
+		<for list="${project.woapps}" param="iii">
+			<sequential>
+				<copy todir="${package.tmp.dir}/Applications/@{iii}.woa">
+					<fileset dir="${roots.dir}/@{iii}.woa"/>
+				</copy>
+			</sequential>
+		</for>
+		
+		<copy file="${roots.dir}/${version.file}" tofile="${package.tmp.dir}/${version.file}"/>
+		
+		<tar destfile="${roots.dir}/IPAWeb-${build.version}.tgz" compression="gzip" longfile="gnu">
+			<tarfileset dir="${package.tmp.dir}"/>
+		</tar>
+		
+		<delete dir="${package.tmp.dir}"/>
+	</target>
+	
+</project>
+
